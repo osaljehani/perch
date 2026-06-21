@@ -1,0 +1,29 @@
+# DIRECT PATH — Falco pushes alerts straight to perch (no Falcosidekick needed).
+#
+# Add this to Falco's falco.yaml (or the `falco.falco` values of the Falco Helm
+# chart). Falco's HTTP output sends the same JSON payload perch expects.
+#
+# json_output + json_include_output_property must be on so perch receives
+# structured fields. Point url at perch's /ingest endpoint.
+
+# Emit alerts as JSON with the structured output_fields object.
+json_output: true
+json_include_output_property: true
+json_include_tags_property: true
+
+http_output:
+  enabled: true
+  url: "http://perch.perch.svc.cluster.local/ingest"   # in-cluster Service
+  # url: "http://<perch-host>:8000/ingest"             # standalone / compose
+  # Shared secret — must equal perch's PERCH_SECRET. Sent as a custom header:
+  custom_headers:
+    - "X-Webhook-Secret: REPLACE_WITH_TOKEN"
+
+# Helm chart equivalent (falcosecurity/falco): set the same keys under
+#   falco:
+#     json_output: true
+#     json_include_output_property: true
+#     http_output:
+#       enabled: true
+#       url: "http://perch.perch.svc.cluster.local/ingest"
+#       custom_headers: ["X-Webhook-Secret: REPLACE_WITH_TOKEN"]

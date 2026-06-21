@@ -1,0 +1,27 @@
+# ADD-ON PATH — perch alongside an existing Falco + Falcosidekick setup.
+#
+# This is ADDITIVE: Falcosidekick fans out to every configured output in
+# parallel, so your existing UI/Redis, Slack, ntfy, etc. keep working. You just
+# add one webhook output pointing at perch.
+#
+# Set these under the Falcosidekick Helm chart's `config.webhook` (or the
+# falcosidekick.config.webhook block of the Falco umbrella chart).
+
+config:
+  webhook:
+    address: "http://perch.perch.svc.cluster.local/ingest"
+    method: "POST"
+    # "" forwards everything; raise to "notice"/"warning" to trim volume.
+    minimumpriority: ""
+    # Shared secret — must equal perch's PERCH_SECRET.
+    customHeaders: "X-Webhook-Secret:REPLACE_WITH_TOKEN"
+
+# GitOps-clean alternative: leave customHeaders unset above and inject it from a
+# Secret via env (avoids the token in plaintext values):
+#
+# extraEnv:
+#   - name: WEBHOOK_CUSTOMHEADERS
+#     valueFrom:
+#       secretKeyRef:
+#         name: perch-webhook
+#         key: customheaders        # value: "X-Webhook-Secret:<token>"

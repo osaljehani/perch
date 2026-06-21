@@ -1,0 +1,17 @@
+{
+  "uuid": "8f3a1b2c-0000-0000-0000-000000000001",
+  "output": "Sensitive file opened for reading by non-trusted program (file=/etc/shadow command=cat /etc/shadow)",
+  "priority": "Warning",
+  "rule": "Read sensitive file untrusted",
+  "time": "2026-06-21T07:15:00.000000000Z",
+  "source": "syscall",
+  "hostname": "node-01",
+  "output_fields": {
+    "container.id": "host",
+    "proc.cmdline": "cat /etc/shadow",
+    "proc.name": "cat",
+    "user.name": "root",
+    "fd.name": "/etc/shadow"
+  },
+  "tags": ["filesystem", "mitre_credential_access", "T1555"]
+}
