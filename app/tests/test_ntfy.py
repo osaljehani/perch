@@ -37,7 +37,7 @@ def test_critical_event_triggers_ntfy_push(client, app_mod, monkeypatch):
         "priority": "Critical",
         "rule": "Terminal shell in container",
         "output": "A shell was spawned in a container",
-        "hostname": "rasp",
+        "hostname": "node-01",
     })
     assert r.status_code == 200
     assert len(calls) == 1
@@ -45,7 +45,7 @@ def test_critical_event_triggers_ntfy_push(client, app_mod, monkeypatch):
     assert c["url"] == "https://ntfy.example.com/falco-alerts"
     assert c["headers"]["Authorization"] == "Bearer tk_secrettoken"
     assert "Terminal shell in container" in c["headers"]["Title"]
-    assert "rasp" in c["headers"]["Title"]
+    assert "node-01" in c["headers"]["Title"]
     assert c["headers"]["Priority"] == "urgent"
     assert c["headers"]["Tags"] == "rotating_light"
     assert "A shell was spawned in a container" in c["data"]
@@ -57,7 +57,7 @@ def test_warning_event_does_not_push(client, app_mod, monkeypatch):
 
     r = client.post("/ingest", json={
         "priority": "Warning", "rule": "Sensitive file read",
-        "output": "x", "hostname": "blade",
+        "output": "x", "hostname": "node-02",
     })
     assert r.status_code == 200
     assert calls == []
@@ -69,7 +69,7 @@ def test_notice_event_does_not_push(client, app_mod, monkeypatch):
 
     r = client.post("/ingest", json={
         "priority": "Notice", "rule": "Something noticed",
-        "output": "x", "hostname": "blade",
+        "output": "x", "hostname": "node-02",
     })
     assert r.status_code == 200
     assert calls == []
@@ -81,7 +81,7 @@ def test_unconfigured_ntfy_does_not_push_but_stores(client, app_mod, monkeypatch
     calls = _record_posts(monkeypatch, app_mod)
 
     r = client.post("/ingest", json={
-        "priority": "Critical", "rule": "R", "output": "o", "hostname": "rasp",
+        "priority": "Critical", "rule": "R", "output": "o", "hostname": "node-01",
     })
     assert r.status_code == 200
     assert calls == []
@@ -112,7 +112,7 @@ def test_min_priority_env_widens_threshold(client, app_mod, monkeypatch):
 
     r = client.post("/ingest", json={
         "priority": "Warning", "rule": "Sensitive file read",
-        "output": "x", "hostname": "blade",
+        "output": "x", "hostname": "node-02",
     })
     assert r.status_code == 200
     assert len(calls) == 1
@@ -136,7 +136,7 @@ def test_ntfy_failure_does_not_break_ingest(client, app_mod, monkeypatch):
     calls = _record_posts(monkeypatch, app_mod, fail=True)
 
     r = client.post("/ingest", json={
-        "priority": "Critical", "rule": "R", "output": "o", "hostname": "rasp",
+        "priority": "Critical", "rule": "R", "output": "o", "hostname": "node-01",
     })
     # ntfy blew up, but the event must still be accepted and stored.
     assert r.status_code == 200
@@ -151,7 +151,7 @@ def test_ntfy_non_string_fields_do_not_break_ingest(client, app_mod, monkeypatch
     calls = _record_posts(monkeypatch, app_mod)
 
     r = client.post("/ingest", json={
-        "priority": "Critical", "rule": 42, "output": 12345, "hostname": "rasp",
+        "priority": "Critical", "rule": 42, "output": 12345, "hostname": "node-01",
     })
     assert r.status_code == 200
     assert _count_events(app_mod) == 1
@@ -167,7 +167,7 @@ def test_ntfy_title_strips_control_chars(client, app_mod, monkeypatch):
 
     r = client.post("/ingest", json={
         "priority": "Critical", "rule": "line1\nline2\ttab",
-        "output": "o", "hostname": "rasp\rx",
+        "output": "o", "hostname": "node-01\rx",
     })
     assert r.status_code == 200
     assert len(calls) == 1

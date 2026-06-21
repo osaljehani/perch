@@ -2,4 +2,4 @@ __pycache__/
 *.pyc
 *.db
 /deploy/kubernetes/secret.yaml
-perchhexstrikeplan.md
+*plan.md

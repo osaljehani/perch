@@ -16,8 +16,8 @@ def _ingest(client, **over):
 
 
 def test_stats_renders_with_events(client):
-    _ingest(client, priority="Critical", rule="Shell", hostname="rasp")
-    _ingest(client, priority="Warning", rule="File read", hostname="blade")
+    _ingest(client, priority="Critical", rule="Shell", hostname="node-01")
+    _ingest(client, priority="Warning", rule="File read", hostname="node-02")
     r = client.get("/stats")
     assert r.status_code == 200
     body = r.text
@@ -45,8 +45,8 @@ def test_view_defaults_to_feed(client):
 
 
 def test_export_csv(client):
-    _ingest(client, priority="Critical", rule="Shell", hostname="rasp")
-    _ingest(client, priority="Warning", rule="File read", hostname="blade")
+    _ingest(client, priority="Critical", rule="Shell", hostname="node-01")
+    _ingest(client, priority="Warning", rule="File read", hostname="node-02")
     r = client.get("/export", params={"fmt": "csv"})
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/csv")
@@ -59,7 +59,7 @@ def test_export_csv(client):
 
 
 def test_export_json(client):
-    _ingest(client, priority="Critical", rule="Shell", hostname="rasp", output="A shell")
+    _ingest(client, priority="Critical", rule="Shell", hostname="node-01", output="A shell")
     r = client.get("/export", params={"fmt": "json"})
     assert r.status_code == 200
     assert "attachment" in r.headers["content-disposition"]
