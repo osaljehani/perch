@@ -1,0 +1,26 @@
+<div id="counts" hx-swap-oob="true">{% include "_counts.html" %}</div>
+{% if not events %}
+<div class="empty">No events match. Falco's quiet, or the filter's too tight.</div>
+{% else %}
+{% for e in events %}
+<details class="card {{ e.pclass }}">
+  <summary>
+    <span class="row1">
+      <span class="tag {{ e.pclass }}">{{ e.priority or "—" }}</span>
+      <span class="rule">{{ e.rule }}</span>
+      <span class="rel">{{ e.rel }}</span>
+    </span>
+    <span class="sub">{{ e.hostname or "unknown host" }}{% if e.source %} · {{ e.source }}{% endif %}</span>
+  </summary>
+  <p class="output">{{ e.output }}</p>
+  {% if e.fields %}
+  <table class="fields">
+    {% for k, v in e.fields.items() %}
+    <tr><td>{{ k }}</td><td>{{ v }}</td></tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+  {% if e.tags %}<div class="tags">{% for t in e.tags %}<span>{{ t }}</span>{% endfor %}</div>{% endif %}
+</details>
+{% endfor %}
+{% endif %}

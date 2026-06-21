@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: falco-triage
+  namespace: falco-triage
+  labels:
+    app: falco-triage
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate          # single SQLite writer on a RWO volume
+  selector:
+    matchLabels:
+      app: falco-triage
+  template:
+    metadata:
+      labels:
+        app: falco-triage
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: falco-triage
+          image: REPLACE_WITH_REGISTRY/falco-triage:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          env:
+            - name: DB_PATH
+              value: /data/triage.db
+            - name: POLL_SECONDS
+              value: "15"
+            - name: RETENTION_DAYS
+              value: "30"
+            - name: TRIAGE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: falco-triage-secret
+                  key: webhook-secret
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 10m
+              memory: 48Mi
+            limits:
+              memory: 128Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: falco-triage-data
+        - name: tmp
+          emptyDir: {}

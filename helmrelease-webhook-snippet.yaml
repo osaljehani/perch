@@ -1,0 +1,29 @@
+# Add this to blade-14's infrastructure/falco/helmrelease.yaml.
+# It is ADDITIVE — your existing UI/Redis and ntfy outputs keep working,
+# because Falcosidekick fans out to every configured output in parallel.
+#
+# Place the `webhook` block under spec.values.falcosidekick.config, alongside
+# whatever ntfy/other config you already have.
+
+spec:
+  values:
+    falcosidekick:
+      config:
+        webhook:
+          address: "http://falco-triage.falco-triage.svc.cluster.local/ingest"
+          method: "POST"
+          # minimumpriority: ""   # "" = forward everything; raise to "notice"/"warning" to trim
+          # customHeaders is the shared secret. Two ways:
+          #
+          # (A) Quick test — inline (token visible in the HelmRelease):
+          # customHeaders: "X-Webhook-Secret:REPLACE_WITH_TOKEN"
+          #
+          # (B) GitOps-clean — inject via env from a SOPS-encrypted secret in the
+          #     `falco` namespace (see README). Leave customHeaders unset here and add:
+      # extraEnv lives at the falcosidekick level (sibling of `config`):
+      extraEnv:
+        - name: WEBHOOK_CUSTOMHEADERS
+          valueFrom:
+            secretKeyRef:
+              name: falco-triage-webhook   # secret in the `falco` namespace
+              key: customheaders            # value: "X-Webhook-Secret:<token>"
