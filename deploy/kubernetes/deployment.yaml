@@ -23,7 +23,7 @@ spec:
         fsGroup: 1000
       containers:
         - name: perch
-          image: ghcr.io/REPLACE_WITH_OWNER/perch:latest
+          image: ghcr.io/osaljehani/perch:v0.1.0
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
@@ -39,6 +39,18 @@ spec:
                 secretKeyRef:
                   name: perch-secret
                   key: webhook-secret
+            # Optional: push critical events to ntfy. Uncomment to enable.
+            # - name: NTFY_URL
+            #   value: https://ntfy.example.com
+            # - name: NTFY_TOPIC
+            #   value: falco-alerts
+            # - name: NTFY_MIN_PRIORITY
+            #   value: error              # "error" = critical-tier; "warning" widens it
+            # - name: NTFY_TOKEN          # only for ntfy servers that require auth
+            #   valueFrom:
+            #     secretKeyRef:
+            #       name: perch-secret
+            #       key: ntfy-token
           volumeMounts:
             - name: data
               mountPath: /data

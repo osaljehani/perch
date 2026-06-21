@@ -28,12 +28,18 @@
       <a href="/" class="brand"><span class="dot" aria-hidden="true"></span>perch</a>
       <span class="counts" id="counts">{% include "_counts.html" %}</span>
       <button class="iconbtn" title="Refresh"
-              hx-get="/feed" hx-include="#filters" hx-target="#feed">↻</button>
+              hx-get="/view" hx-include="#filters" hx-target="#view">↻</button>
       <button class="iconbtn" title="Toggle theme" onclick="toggleTheme()">◐</button>
     </div>
   </header>
 
   <form id="filters" class="filters wrap">
+    <div class="chipset" role="group" aria-label="View">
+      <span class="group-label">view</span>
+      <label><input type="radio" name="view" value="feed" checked><span class="chip">Feed</span></label>
+      <label><input type="radio" name="view" value="stats"><span class="chip">Stats</span></label>
+    </div>
+
     <div class="chipset" role="group" aria-label="Severity">
       <span class="group-label">sev</span>
       <label><input type="radio" name="priority" value="" checked><span class="chip">All</span></label>
@@ -61,10 +67,12 @@
     </select>
 
     <input class="search" type="search" name="q" placeholder="filter by rule, host, output…" autocomplete="off">
+
+    <span id="export" class="export"></span>
   </form>
 
-  <main id="feed" class="feed wrap"
-        hx-get="/feed"
+  <main id="view" class="wrap"
+        hx-get="/view"
         hx-include="#filters"
         hx-trigger="load, every {{ poll }}s, change from:#filters, keyup changed delay:400ms from:#filters">
     <div class="empty">Loading…</div>

@@ -1,7 +1,8 @@
 # DIRECT PATH — Falco pushes alerts straight to perch (no Falcosidekick needed).
 #
-# Add this to Falco's falco.yaml (or the `falco.falco` values of the Falco Helm
-# chart). Falco's HTTP output sends the same JSON payload perch expects.
+# Add this to Falco's falco.yaml (or a drop-in under /etc/falco/config.d/, or the
+# `falco.falco` values of the Falco Helm chart). Falco's HTTP output sends the
+# same JSON payload perch expects.
 #
 # json_output + json_include_output_property must be on so perch receives
 # structured fields. Point url at perch's /ingest endpoint.
@@ -15,15 +16,28 @@ http_output:
   enabled: true
   url: "http://perch.perch.svc.cluster.local/ingest"   # in-cluster Service
   # url: "http://<perch-host>:8000/ingest"             # standalone / compose
-  # Shared secret — must equal perch's PERCH_SECRET. Sent as a custom header:
-  custom_headers:
-    - "X-Webhook-Secret: REPLACE_WITH_TOKEN"
 
-# Helm chart equivalent (falcosecurity/falco): set the same keys under
-#   falco:
-#     json_output: true
-#     json_include_output_property: true
-#     http_output:
-#       enabled: true
-#       url: "http://perch.perch.svc.cluster.local/ingest"
-#       custom_headers: ["X-Webhook-Secret: REPLACE_WITH_TOKEN"]
+# ── Authentication note ───────────────────────────────────────────────────────
+# Falco's NATIVE http_output cannot send custom HTTP headers (verified on Falco
+# 0.44; the only keys are enabled/url plus TLS options). So it CANNOT send the
+# `X-Webhook-Secret` header that perch's PERCH_SECRET checks. Three options:
+#
+#   1. Standalone / trusted network — run perch with PERCH_SECRET unset (auth
+#      disabled) and keep /ingest reachable only on a trusted host/network
+#      (e.g. localhost, or bound behind your own firewall). Simplest.
+#
+#   2. Authenticated direct path via program_output — use Falco's program_output
+#      to pipe each JSON alert through curl, which CAN add the header:
+#
+#        json_output: true
+#        program_output:
+#          enabled: true
+#          program: "curl -fsS -H 'X-Webhook-Secret: REPLACE_WITH_TOKEN' \
+#                     -H 'Content-Type: application/json' -d @- \
+#                     http://<perch-host>:8000/ingest"
+#
+#      (Spawns one curl per alert — heavier than http_output, but preserves auth.)
+#
+#   3. Add-on path via Falcosidekick — Falcosidekick's webhook output DOES support
+#      custom headers; see falcosidekick-webhook.yaml. Use this if you already run
+#      Falcosidekick and want the shared secret on the wire.

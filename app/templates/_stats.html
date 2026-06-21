@@ -1,0 +1,63 @@
+<div id="counts" hx-swap-oob="true">{% include "_counts.html" %}</div>
+<span id="export" hx-swap-oob="true" class="export">
+  <a class="exp" href="/export?fmt=csv&{{ qs }}">CSV</a>
+  <a class="exp" href="/export?fmt=json&{{ qs }}">JSON</a>
+</span>
+<div class="stats">
+  <section class="chart">
+    <h3>Events over time <span class="since">· {{ since }}</span></h3>
+    <div class="spark">
+      {% for b in over_time %}
+      <span class="spark-bar" style="height: {{ (b.count / over_time_max * 100) | round(1) }}%"
+            title="{{ b.label }}: {{ b.count }}"></span>
+      {% endfor %}
+    </div>
+    <div class="spark-axis"><span>{{ over_time[0].label }}</span><span>{{ over_time[-1].label }}</span></div>
+  </section>
+
+  <section class="chart">
+    <h3>By priority</h3>
+    {% if priority_segments %}
+    <div class="donut-wrap">
+      <div class="donut" style="background: conic-gradient(
+        {%- for s in priority_segments -%}
+        var(--{{ s.color }}) {{ s.start }}% {{ s.end }}%{{ "," if not loop.last }}
+        {%- endfor -%})"></div>
+      <div class="legend legend-col">
+        {% for s in priority_segments %}
+        <span><i class="dot {{ s.color }}"></i>{{ s.label }} {{ s.count }} ({{ s.pct }}%)</span>
+        {% endfor %}
+      </div>
+    </div>
+    {% else %}<p class="empty">No data in window.</p>{% endif %}
+  </section>
+
+  <section class="chart">
+    <h3>Top rules</h3>
+    {% if not top_rules %}<p class="empty">No data in window.</p>{% endif %}
+    {% for r in top_rules %}
+    <div class="barrow">
+      <span class="barlabel" title="{{ r.rule }}">{{ r.rule }}</span>
+      <span class="bartrack"><span class="bar" style="width: {{ (r.count / top_rules_max * 100) | round(1) }}%"></span></span>
+      <span class="barcount">{{ r.count }}</span>
+    </div>
+    {% endfor %}
+  </section>
+
+  <section class="chart">
+    <h3>By host</h3>
+    {% if host_segments %}
+    <div class="donut-wrap">
+      <div class="donut" style="background: conic-gradient(
+        {%- for s in host_segments -%}
+        var(--{{ s.color }}) {{ s.start }}% {{ s.end }}%{{ "," if not loop.last }}
+        {%- endfor -%})"></div>
+      <div class="legend legend-col">
+        {% for s in host_segments %}
+        <span><i class="dot {{ s.color }}"></i>{{ s.label }} {{ s.count }} ({{ s.pct }}%)</span>
+        {% endfor %}
+      </div>
+    </div>
+    {% else %}<p class="empty">No data in window.</p>{% endif %}
+  </section>
+</div>

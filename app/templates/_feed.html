@@ -1,4 +1,9 @@
 <div id="counts" hx-swap-oob="true">{% include "_counts.html" %}</div>
+<span id="export" hx-swap-oob="true" class="export">
+  <a class="exp" href="/export?fmt=csv&{{ qs }}">CSV</a>
+  <a class="exp" href="/export?fmt=json&{{ qs }}">JSON</a>
+</span>
+<div class="feed">
 {% if not events %}
 <div class="empty">No events match. Falco's quiet, or the filter's too tight.</div>
 {% else %}
@@ -24,3 +29,4 @@
 </details>
 {% endfor %}
 {% endif %}
+</div>

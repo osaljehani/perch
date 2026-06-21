@@ -30,6 +30,14 @@
   --sev-info: #646b76;
   --sev-debug: #4b5159;
 
+  /* Chart palette for the stats "by host" donut (hosts have no fixed color). */
+  --chart-1: #d59a2b;
+  --chart-2: #5b9dff;
+  --chart-3: #5f8159;
+  --chart-4: #c0533a;
+  --chart-5: #9aa0aa;
+  --chart-6: #8b6db8;
+
   /* Typography */
   --font-sans: "Geist", system-ui, -apple-system, sans-serif;
   --font-mono: "Geist Mono", ui-monospace, "SF Mono", monospace;
@@ -412,6 +420,141 @@ summary::-webkit-details-marker { display: none; }
   text-align: center;
   padding: var(--space-8) var(--space-3);
   font-size: var(--text-sm);
+}
+
+/* ============================================================
+   EXPORT LINKS (CSV / JSON) — lives in the filter bar, filled via HTMX OOB
+   ============================================================ */
+.export {
+  display: flex;
+  gap: 0.5rem;
+  flex: 1 1 100%;
+}
+
+.exp {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-decoration: none;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.35rem 0.75rem;
+  transition: color 150ms ease, border-color 150ms ease, background 150ms ease;
+}
+
+.exp:hover { color: var(--text-main); border-color: var(--text-subtle); }
+.exp:active { background: var(--bg-surface-hover); }
+
+/* ============================================================
+   STATS — pure-CSS charts (sparkline, donuts, bars). No JS.
+   ============================================================ */
+.stats {
+  padding: var(--space-2) var(--space-3) var(--space-8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.chart {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: var(--space-2);
+}
+
+.chart h3 {
+  margin: 0 0 0.7rem;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.chart .since {
+  color: var(--text-subtle);
+  font-weight: 400;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.spark { display: flex; align-items: flex-end; gap: 2px; height: 64px; }
+
+.spark-bar {
+  flex: 1 1 0;
+  background: var(--accent);
+  border-radius: 2px 2px 0 0;
+  min-height: 1px;
+}
+
+.spark-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.25rem;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  color: var(--text-subtle);
+}
+
+.donut-wrap { display: flex; align-items: center; gap: var(--space-2); }
+
+.donut {
+  width: 104px;
+  height: 104px;
+  border-radius: 50%;
+  flex: none;
+  -webkit-mask: radial-gradient(circle, transparent 54%, #000 55%);
+          mask: radial-gradient(circle, transparent 54%, #000 55%);
+}
+
+.legend {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.legend.legend-col { flex-direction: column; gap: 0.3rem; margin-top: 0; }
+.legend span { display: flex; align-items: center; }
+
+.legend .dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  margin-right: 6px;
+  flex: none;
+}
+
+.legend .dot.sev-crit { background: var(--sev-crit); }
+.legend .dot.sev-warn { background: var(--sev-warn); }
+.legend .dot.sev-info { background: var(--sev-info); }
+.legend .dot.chart-1 { background: var(--chart-1); }
+.legend .dot.chart-2 { background: var(--chart-2); }
+.legend .dot.chart-3 { background: var(--chart-3); }
+.legend .dot.chart-4 { background: var(--chart-4); }
+.legend .dot.chart-5 { background: var(--chart-5); }
+.legend .dot.chart-6 { background: var(--chart-6); }
+
+.barrow { display: flex; align-items: center; gap: 0.5rem; margin: 0.4rem 0; }
+
+.barlabel {
+  flex: 0 0 38%;
+  font-size: var(--text-xs);
+  color: var(--text-main);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bartrack { flex: 1 1 auto; background: var(--border); border-radius: 4px; height: 10px; }
+.bar { display: block; height: 10px; background: var(--accent); border-radius: 4px; min-width: 2px; }
+.barcount { flex: 0 0 auto; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); }
+
+@media (min-width: 721px) {
+  .stats { padding-top: var(--space-3); }
 }
 
 /* ============================================================

@@ -4,14 +4,22 @@
 #   http://<this-host>:8000/ingest   (header  X-Webhook-Secret: <PERCH_SECRET>)
 services:
   perch:
+    # Build from source (works natively on amd64 and arm64/Raspberry Pi).
     build: ../app
     image: perch:latest
+    # Or skip the build and pull a published multi-arch image instead:
+    #   image: ghcr.io/osaljehani/perch:v0.1.0
     ports:
       - "8000:8000"
     environment:
       PERCH_SECRET: "${PERCH_SECRET:-}"   # empty = no auth (local testing only)
       POLL_SECONDS: "15"
       RETENTION_DAYS: "30"
+      # Optional: push critical events to ntfy (disabled unless NTFY_URL is set).
+      # NTFY_URL: "https://ntfy.sh"
+      # NTFY_TOPIC: "falco-alerts"
+      # NTFY_MIN_PRIORITY: "error"        # "error" = critical-tier; "warning" widens it
+      # NTFY_TOKEN: "${NTFY_TOKEN:-}"     # only for ntfy servers that require auth
     volumes:
       - perch-data:/data
     restart: unless-stopped
