@@ -1,6 +1,11 @@
 """Tests for the stats view (/stats, /view?view=stats) and CSV/JSON export."""
 import csv
 import io
+import re
+from datetime import datetime, timedelta, timezone
+
+COLS = ["received_at", "event_time", "rule", "priority", "source",
+        "hostname", "output", "tags", "fields"]
 
 
 def _ingest(client, **over):
@@ -74,3 +79,32 @@ def test_export_respects_priority_filter(client):
     r = client.get("/export", params={"fmt": "csv", "priority": "critical"})
     rows = list(csv.reader(io.StringIO(r.text)))
     assert len(rows) == 2  # header + 1 critical
+
+
+def test_csv_export_neutralizes_formula_injection(client):
+    _ingest(client, rule="=cmd()", output="+SUM(A1)", hostname="@evil", priority="warning")
+    r = client.get("/export", params={"fmt": "csv"})
+    row = list(csv.reader(io.StringIO(r.text)))[1]
+    assert row[COLS.index("rule")].startswith("'=")
+    assert row[COLS.index("output")].startswith("'+")
+    assert row[COLS.index("hostname")].startswith("'@")
+
+
+def test_search_escapes_like_underscore(client):
+    # '_' is a SQL LIKE single-char wildcard; the search must treat it literally.
+    _ingest(client, rule="a_b")
+    _ingest(client, rule="axb")
+    r = client.get("/export", params={"fmt": "csv", "q": "a_b"})
+    rows = list(csv.reader(io.StringIO(r.text)))
+    assert len(rows) == 2  # header + only the literal "a_b" (not "axb")
+
+
+def test_stats_all_window_includes_old_events(client, insert):
+    # Default 'since' is All; the over-time chart must span old events, not a
+    # fixed 24h window that silently drops them.
+    insert(datetime.now(timezone.utc) - timedelta(days=10),
+           rule="Old", priority="critical", hostname="h")
+    r = client.get("/stats")
+    assert r.status_code == 200
+    # at least one spark bar carries a non-zero count (title="<label>: <n>").
+    assert re.search(r'title="[^"]*: [1-9]', r.text)

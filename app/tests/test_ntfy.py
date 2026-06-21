@@ -142,3 +142,35 @@ def test_ntfy_failure_does_not_break_ingest(client, app_mod, monkeypatch):
     assert r.status_code == 200
     assert len(calls) == 1
     assert _count_events(app_mod) == 1
+
+
+def test_ntfy_non_string_fields_do_not_break_ingest(client, app_mod, monkeypatch):
+    # A malformed payload (numeric output/priority) must not crash ingestion:
+    # title/body construction is inside notify_ntfy's try, and values are coerced.
+    _configure_ntfy(monkeypatch)
+    calls = _record_posts(monkeypatch, app_mod)
+
+    r = client.post("/ingest", json={
+        "priority": "Critical", "rule": 42, "output": 12345, "hostname": "rasp",
+    })
+    assert r.status_code == 200
+    assert _count_events(app_mod) == 1
+    assert len(calls) == 1
+    assert "12345" in calls[0]["data"]
+
+
+def test_ntfy_title_strips_control_chars(client, app_mod, monkeypatch):
+    # Newline/CR are ASCII, so encode('ascii','replace') keeps them; httpx then
+    # rejects the header and drops the alert. They must be stripped to spaces.
+    _configure_ntfy(monkeypatch)
+    calls = _record_posts(monkeypatch, app_mod)
+
+    r = client.post("/ingest", json={
+        "priority": "Critical", "rule": "line1\nline2\ttab",
+        "output": "o", "hostname": "rasp\rx",
+    })
+    assert r.status_code == 200
+    assert len(calls) == 1
+    title = calls[0]["headers"]["Title"]
+    assert "\n" not in title and "\r" not in title and "\t" not in title
+    title.encode("ascii")  # must not raise (what httpx does internally)

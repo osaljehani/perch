@@ -34,6 +34,11 @@ spec:
               value: "15"
             - name: RETENTION_DAYS
               value: "30"
+            # NOTE: PERCH_SECRET is enforced on /ingest. Only senders that can
+            # set the X-Webhook-Secret header satisfy it — Falcosidekick (webhook
+            # custom headers) or Falco program_output + curl. Falco's NATIVE
+            # http_output cannot send headers, so leave PERCH_SECRET unset if that
+            # is your only ingest path (see deploy/examples/falco-http-output.yaml).
             - name: PERCH_SECRET
               valueFrom:
                 secretKeyRef:

@@ -24,7 +24,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -71,7 +71,6 @@ BUCKET_SPEC = {
     "7d": (28, 360),
     "30d": (30, 1440),
 }
-DEFAULT_BUCKET = "24h"
 
 # Columns emitted by CSV/JSON export, in order.
 EXPORT_COLUMNS = ["received_at", "event_time", "rule", "priority", "source",
@@ -85,6 +84,16 @@ def export_qs(priority: str, q: str, since: str, host: str, rule: str) -> str:
     """Filter state as a query string, so export links track the active view."""
     return urlencode({"priority": priority, "q": q, "since": since,
                       "host": host, "rule": rule})
+
+
+def _csv_safe(value):
+    """Guard against CSV formula injection: a cell beginning with =, +, -, @, or a
+    leading tab/CR is evaluated as a formula by Excel/Sheets. Falco output is
+    attacker-influenceable, so prefix such values with a single quote.
+    """
+    if isinstance(value, str) and value[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + value
+    return value
 
 TEMPLATES = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
@@ -194,8 +203,14 @@ def scope_clauses(host: str, since: str, q: str) -> tuple[list[str], list]:
         clauses.append("received_at >= ?")
         params.append(cutoff)
     if q:
-        clauses.append("(rule LIKE ? OR output LIKE ? OR hostname LIKE ?)")
-        params += [f"%{q}%"] * 3
+        # Escape LIKE wildcards so a literal % or _ in the search isn't treated
+        # as a wildcard (would over-match the feed, stats, and export).
+        esc = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        clauses.append(
+            "(rule LIKE ? ESCAPE '\\' OR output LIKE ? ESCAPE '\\' "
+            "OR hostname LIKE ? ESCAPE '\\')"
+        )
+        params += [f"%{esc}%"] * 3
     return clauses, params
 
 
@@ -220,10 +235,14 @@ def filter_clauses(priority: str, host: str, rule: str, since: str, q: str):
 
 
 def bucketize(timestamps, since: str, now: datetime):
-    """Bucket received_at timestamps into a fixed-width histogram for the window."""
-    n, width = BUCKET_SPEC.get(since, BUCKET_SPEC[DEFAULT_BUCKET])
-    start = now - timedelta(minutes=n * width)
-    buckets = [0] * n
+    """Bucket received_at timestamps into a histogram for the over-time chart.
+
+    For a fixed window (since in BUCKET_SPEC) the span is now-window..now. For
+    the 'All' window (anything else) the span runs oldest-event..now so events
+    are never silently dropped — otherwise the chart would read all-zero while
+    the count badges show a non-zero total.
+    """
+    parsed = []
     for ts in timestamps:
         try:
             dt = datetime.fromisoformat(ts)
@@ -231,12 +250,31 @@ def bucketize(timestamps, since: str, now: datetime):
             continue
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
-        idx = int((dt - start).total_seconds() // (width * 60))
+        parsed.append(dt)
+
+    if since in BUCKET_SPEC:
+        n, width_min = BUCKET_SPEC[since]
+        width = timedelta(minutes=width_min)
+        wide = since in ("7d", "30d")
+    else:
+        # 'All' — span the actual data range so old events still show.
+        n = 30
+        oldest = min(parsed) if parsed else now - timedelta(hours=24)
+        span = max(now - oldest, timedelta(minutes=n))
+        width = span / n
+        wide = span >= timedelta(days=2)
+
+    start = now - width * n
+    buckets = [0] * n
+    for dt in parsed:
+        idx = int((dt - start) / width)
+        if idx == n:          # the right edge (== now) belongs to the last bucket
+            idx = n - 1
         if 0 <= idx < n:
             buckets[idx] += 1
-    fmt = "%m-%d" if since in ("7d", "30d") else "%H:%M"
+    fmt = "%m-%d" if wide else "%H:%M"
     return [
-        {"label": (start + timedelta(minutes=i * width)).strftime(fmt), "count": c}
+        {"label": (start + width * i).strftime(fmt), "count": c}
         for i, c in enumerate(buckets)
     ]
 
@@ -296,37 +334,50 @@ async def post_ntfy(url: str, headers: dict, data: str) -> None:
         await c.post(url, headers=headers, content=data.encode("utf-8"))
 
 
+def _ascii_header(value: str) -> str:
+    """Make a string safe as an HTTP header value.
+
+    httpx rejects non-ASCII *and* control characters (newline/CR/tab) and raises
+    at send time, which would silently drop the alert. Control chars become
+    spaces and non-ASCII is replaced. Lossy is fine — the UTF-8 body keeps the
+    full detail.
+    """
+    cleaned = "".join(c if " " <= c < "\x7f" else " " for c in value)
+    return cleaned.encode("ascii", "replace").decode("ascii")
+
+
 async def notify_ntfy(payload: dict, hostname: str = "") -> None:
     """Push a phone alert for critical Falco events. Opt-in via NTFY_URL.
 
     Disabled unless NTFY_URL is set. A failure here must never break ingestion,
-    so everything is swallowed and logged.
+    so everything — including title/body construction — is swallowed and logged.
     """
     base = os.environ.get("NTFY_URL", "").rstrip("/")
     if not base:
         return
     allowed = priorities_at_or_above(os.environ.get("NTFY_MIN_PRIORITY", "error"))
-    if (payload.get("priority") or "").lower() not in allowed:
+    if str(payload.get("priority") or "").lower() not in allowed:
         return
-    topic = os.environ.get("NTFY_TOPIC", "falco-alerts")
-    token = os.environ.get("NTFY_TOKEN", "")
-    rule = payload.get("rule") or "Falco alert"
-    title = f"{rule} - {hostname}" if hostname else rule
-    # HTTP header values must be ASCII; httpx raises otherwise. The body (sent
-    # as UTF-8 bytes) keeps the full detail, so a lossy title is fine.
-    title = title.encode("ascii", "replace").decode("ascii")
-    body = (payload.get("output") or rule)[:400]
-    headers = {"Title": title, "Priority": "urgent", "Tags": "rotating_light"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
     try:
+        topic = os.environ.get("NTFY_TOPIC", "falco-alerts")
+        token = os.environ.get("NTFY_TOKEN", "")
+        # Coerce to str: a malformed payload (non-string rule/output) must not
+        # crash ingestion.
+        rule = str(payload.get("rule") or "Falco alert")
+        host = str(hostname or "")
+        title = _ascii_header(f"{rule} - {host}" if host else rule)
+        body = str(payload.get("output") or rule)[:400]
+        headers = {"Title": title, "Priority": "urgent", "Tags": "rotating_light"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
         await post_ntfy(f"{base}/{topic}", headers, body)
     except Exception as e:
         log.warning("ntfy publish failed: %s", e)
 
 
 @app.post("/ingest")
-async def ingest(request: Request, x_webhook_secret: str | None = Header(default=None)):
+async def ingest(request: Request, background_tasks: BackgroundTasks,
+                 x_webhook_secret: str | None = Header(default=None)):
     # Both integration paths (Falco http_output, Falcosidekick webhook) POST the
     # same Falco alert JSON here.
     if WEBHOOK_SECRET:
@@ -363,7 +414,9 @@ async def ingest(request: Request, x_webhook_secret: str | None = Header(default
         cutoff = (datetime.now(timezone.utc) - timedelta(days=RETENTION_DAYS)).isoformat()
         conn.execute("DELETE FROM events WHERE received_at < ?", (cutoff,))
         conn.commit()
-    await notify_ntfy(p, hostname)
+    # Fire the (opt-in) ntfy alert after the response is sent, so a slow or down
+    # ntfy never delays/blocks ingestion.
+    background_tasks.add_task(notify_ntfy, p, hostname)
     return JSONResponse({"status": "ok"})
 
 
@@ -399,8 +452,11 @@ def render_stats(request, *, priority, host, rule, since, q):
         rule_rows = conn.execute(
             f"SELECT rule, COUNT(*) c FROM events{where} GROUP BY rule ORDER BY c DESC LIMIT 8",
             params).fetchall()
+        # Cap to the palette size: more hosts than colors makes the donut
+        # unreadable (repeated colors, oversized legend). Top-N, like top rules.
         host_rows = conn.execute(
-            f"SELECT hostname, COUNT(*) c FROM events{where} GROUP BY hostname ORDER BY c DESC",
+            f"SELECT hostname, COUNT(*) c FROM events{where} GROUP BY hostname "
+            f"ORDER BY c DESC LIMIT {len(CHART_COLORS)}",
             params).fetchall()
         ctx_counts = counts(conn, where_sql(scope), scope_params)
 
@@ -488,7 +544,7 @@ def export(fmt: str = "csv", priority: str = "", q: str = "", since: str = "",
     w = csv.writer(buf)
     w.writerow(EXPORT_COLUMNS)
     for r in rows:
-        w.writerow([r[k] for k in EXPORT_COLUMNS])
+        w.writerow([_csv_safe(r[k]) for k in EXPORT_COLUMNS])
     return Response(
         content=buf.getvalue(),
         media_type="text/csv",
