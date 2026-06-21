@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>perch · falco events</title>
+
+  <!-- Apply the stored theme before paint to avoid a flash. -->
+  <script>
+    try {
+      var t = localStorage.getItem("perch-theme");
+      if (t) document.documentElement.dataset.theme = t;
+    } catch (e) {}
+  </script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+  <script src="/static/app.js"></script>
+</head>
+
+<body>
+  <header class="topbar">
+    <div class="wrap topbar-inner">
+      <a href="/" class="brand"><span class="dot" aria-hidden="true"></span>perch</a>
+      <span class="counts" id="counts">{% include "_counts.html" %}</span>
+      <button class="iconbtn" title="Refresh"
+              hx-get="/feed" hx-include="#filters" hx-target="#feed">↻</button>
+      <button class="iconbtn" title="Toggle theme" onclick="toggleTheme()">◐</button>
+    </div>
+  </header>
+
+  <form id="filters" class="filters wrap">
+    <div class="chipset" role="group" aria-label="Severity">
+      <span class="group-label">sev</span>
+      <label><input type="radio" name="priority" value="" checked><span class="chip">All</span></label>
+      <label><input type="radio" name="priority" value="critical"><span class="chip">Critical</span></label>
+      <label><input type="radio" name="priority" value="warning"><span class="chip">Warning</span></label>
+      <label><input type="radio" name="priority" value="other"><span class="chip">Other</span></label>
+    </div>
+
+    <div class="chipset" role="group" aria-label="Time since">
+      <span class="group-label">since</span>
+      <label><input type="radio" name="since" value="1h"><span class="chip">1h</span></label>
+      <label><input type="radio" name="since" value="24h"><span class="chip">24h</span></label>
+      <label><input type="radio" name="since" value="7d"><span class="chip">7d</span></label>
+      <label><input type="radio" name="since" value="" checked><span class="chip">All</span></label>
+    </div>
+
+    <select class="select" name="host" aria-label="Host">
+      <option value="">All hosts</option>
+      {% for h in hosts %}<option value="{{ h }}">{{ h }}</option>{% endfor %}
+    </select>
+
+    <select class="select" name="rule" aria-label="Rule">
+      <option value="">All rules</option>
+      {% for r in rules %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
+    </select>
+
+    <input class="search" type="search" name="q" placeholder="filter by rule, host, output…" autocomplete="off">
+  </form>
+
+  <main id="feed" class="feed wrap"
+        hx-get="/feed"
+        hx-include="#filters"
+        hx-trigger="load, every {{ poll }}s, change from:#filters, keyup changed delay:400ms from:#filters">
+    <div class="empty">Loading…</div>
+  </main>
+</body>
+</html>

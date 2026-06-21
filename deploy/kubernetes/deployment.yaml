@@ -1,43 +1,43 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: falco-triage
-  namespace: falco-triage
+  name: perch
+  namespace: perch
   labels:
-    app: falco-triage
+    app: perch
 spec:
   replicas: 1
   strategy:
     type: Recreate          # single SQLite writer on a RWO volume
   selector:
     matchLabels:
-      app: falco-triage
+      app: perch
   template:
     metadata:
       labels:
-        app: falco-triage
+        app: perch
     spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
         fsGroup: 1000
       containers:
-        - name: falco-triage
-          image: REPLACE_WITH_REGISTRY/falco-triage:latest
+        - name: perch
+          image: ghcr.io/REPLACE_WITH_OWNER/perch:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
           env:
             - name: DB_PATH
-              value: /data/triage.db
+              value: /data/perch.db
             - name: POLL_SECONDS
               value: "15"
             - name: RETENTION_DAYS
               value: "30"
-            - name: TRIAGE_SECRET
+            - name: PERCH_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: falco-triage-secret
+                  name: perch-secret
                   key: webhook-secret
           volumeMounts:
             - name: data
@@ -70,6 +70,6 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim:
-            claimName: falco-triage-data
+            claimName: perch-data
         - name: tmp
           emptyDir: {}

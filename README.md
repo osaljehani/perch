@@ -1,83 +1,111 @@
-# falco-triage
+# perch
 
-A mobile-first triage feed for Falco events. Falcosidekick's webhook output POSTs
-each event to this app; it stores them in SQLite and serves a phone-friendly feed
-(HTMX, no build step, one container). Built to replace day-to-day use of
-falcosidekick-ui on a phone — not to replace its Redis store, which stays as-is.
+A clean, self-hosted UI for [Falco](https://falco.org) events. Perch ingests
+Falco alerts over HTTP, stores them in SQLite, and serves a fast, responsive
+feed that works equally well on a phone and a desktop — with filters by
+**severity, host, rule, and time**.
 
-## How it fits your homelab
+One small container, no build step, no external datastore. Built as a friendlier
+day-to-day view than the Redis-backed Falcosidekick UI — not a replacement for
+it; the two happily run side by side.
 
-Both clusters already converge at blade-14's Falcosidekick (the pi-k3s spoke forwards
-to `192.168.0.90:3002`). So you only add one webhook output on the **hub**; the spoke
-is untouched and its events flow in for free.
+## Two ways to connect
 
-```
-Falco (blade14 + pi-k3s)
-   └─> Falcosidekick (falco ns, blade14)
-         ├─> Redis ─> falcosidekick-ui   (unchanged)
-         ├─> ntfy                          (unchanged)
-         └─> webhook ─> falco-triage (/ingest) ─> SQLite ─> mobile feed   (new)
-```
-
-## Layout
+Falco's HTTP output and Falcosidekick's webhook output forward the *same* alert
+JSON, so perch exposes a single `/ingest` endpoint that serves both paths. Pick
+whichever fits your environment:
 
 ```
-infrastructure/falco-triage/      <- the deploy/ files go here
-  namespace.yaml  pvc.yaml  secret.yaml  deployment.yaml  service.yaml  kustomization.yaml
-clusters/blade14/falco-triage.yaml  <- the flux/ Kustomization
-```
-The `app/` dir is the container source (build + push separately).
-
-## Deploy
-
-1. **Build & push the image** to a registry your cluster can pull from (e.g. your Gitea registry):
-   ```
-   cd app
-   docker build -t <registry>/falco-triage:latest .
-   docker push <registry>/falco-triage:latest
-   ```
-   Set that ref in `deployment.yaml` (`image:`).
-
-2. **Make a shared token** and use it in both places:
-   ```
-   openssl rand -hex 24
-   ```
-   - App side: copy `secret.example.yaml` → `secret.yaml`, set `webhook-secret: <token>`, then `sops --encrypt --in-place secret.yaml`.
-   - Falcosidekick side (`falco` namespace): create a secret `falco-triage-webhook` with
-     key `customheaders` = `X-Webhook-Secret:<token>`, SOPS-encrypted the same way your
-     `ntfy-secret.yaml` is. (Secrets don't cross namespaces, hence two copies of one token.)
-
-3. **Drop the files in:**
-   - `deploy/*` → `infrastructure/falco-triage/`
-   - `flux/falco-triage.yaml` → `clusters/blade14/` (match `sourceRef.name` and the SOPS
-     `secretRef.name` to your existing `clusters/blade14/falco.yaml`).
-
-4. **Wire the webhook** into `infrastructure/falco/helmrelease.yaml` using
-   `helmrelease-webhook-snippet.yaml`. For a first smoke test you can inline
-   `customHeaders` (option A) instead of the secret; switch to the secret once events flow.
-
-5. **Commit.** Flux reconciles, Falco hot-reloads Falcosidekick, events start landing.
-   Reach the feed over your tailnet the same way you reach the UI today.
-
-## Verify
-
-```
-# trigger a Falco rule from any pod
-kubectl exec -it <some-pod> -- /bin/sh -c 'cat /etc/shadow'   # "Read sensitive file untrusted"
-# then check ingestion
-kubectl -n falco-triage logs deploy/falco-triage
+                          ┌─────────────────────────────────────────┐
+  Direct path             │                                         │
+  Falco ── http_output ───┼──────────────►  perch  /ingest ──► SQLite ──► UI
+                          │                  ▲                      │
+  Add-on path             │                  │                      │
+  Falco ─► Falcosidekick ─┼── webhook ───────┘                      │
+            (+ its other outputs, unchanged) └─────────────────────┘
 ```
 
-## Config (env)
+- **Direct** — point Falco's `http_output` at perch. No Falcosidekick required.
+  See [`deploy/examples/falco-http-output.yaml`](deploy/examples/falco-http-output.yaml).
+- **Add-on** — already running Falco + Falcosidekick? Add one webhook output
+  pointing at perch; every existing output keeps working (Falcosidekick fans out
+  in parallel). See [`deploy/examples/falcosidekick-webhook.yaml`](deploy/examples/falcosidekick-webhook.yaml).
 
-| var             | default          | meaning                                  |
-|-----------------|------------------|------------------------------------------|
-| `TRIAGE_SECRET` | (none)           | shared token; must match the webhook header |
-| `DB_PATH`       | `/data/triage.db`| SQLite path                              |
-| `POLL_SECONDS`  | `15`             | feed auto-refresh interval               |
-| `RETENTION_DAYS`| `30`             | events older than this are pruned on write |
+Both paths send a shared-secret header (`X-Webhook-Secret`) that must match
+perch's `PERCH_SECRET`.
 
-## Next
+## Features
 
-The rules console (validate + git-commit Falco rules, Falco hot-reloads via
-`watch_config_files`) slots in as a second tab on this same app.
+- **Responsive UI** — mobile-first, scales up to a roomy desktop layout.
+- **Filters** — severity (critical / warning / other), host, rule, and
+  time-since (1h / 24h / 7d / all), plus free-text search. All combinable; the
+  count badges reflect the current view.
+- **Dark + light themes** — dark by default, toggle persists per browser.
+- **Expandable cards** — tap an event for its full output, structured fields,
+  and tags. Severity shown as a colored stripe.
+- **Retention** — events older than `RETENTION_DAYS` are pruned on write.
+
+## Quick start (standalone)
+
+```sh
+export PERCH_SECRET=$(openssl rand -hex 24)
+docker compose -f deploy/docker-compose.yaml up --build
+# open http://localhost:8000
+```
+
+Send a test event (this is exactly what Falco / Falcosidekick POST):
+
+```sh
+curl -XPOST localhost:8000/ingest \
+  -H "X-Webhook-Secret: $PERCH_SECRET" \
+  -H "Content-Type: application/json" \
+  -d @deploy/sample-event.json
+```
+
+Then wire up Falco or Falcosidekick using the snippets in
+[`deploy/examples/`](deploy/examples/).
+
+## Run from source
+
+```sh
+cd app
+pip install -r requirements.txt
+PERCH_SECRET=test uvicorn main:app --port 8000
+```
+
+## Kubernetes
+
+Generic manifests live in [`deploy/kubernetes/`](deploy/kubernetes/):
+
+```sh
+# set a real token in deploy/kubernetes/secret.example.yaml first
+kubectl apply -k deploy/kubernetes
+```
+
+A Flux/SOPS example for GitOps homelabs is in
+[`deploy/examples/flux/`](deploy/examples/flux/).
+
+## Configuration
+
+| Env var          | Default          | Meaning                                            |
+|------------------|------------------|----------------------------------------------------|
+| `PERCH_SECRET`   | (none)           | Shared token; must match the `X-Webhook-Secret` header. Empty disables auth (local testing only). |
+| `DB_PATH`        | `/data/perch.db` | SQLite path.                                       |
+| `POLL_SECONDS`   | `15`             | Feed auto-refresh interval.                        |
+| `RETENTION_DAYS` | `30`             | Events older than this are pruned on write.        |
+
+`TRIAGE_SECRET` is still read as a fallback for older deployments.
+
+## Project layout
+
+```
+app/                 FastAPI + HTMX application (the container source)
+  main.py            ingest + feed + filters
+  templates/         index + HTMX partials
+  static/            design-system CSS + theme toggle
+deploy/
+  docker-compose.yaml
+  kubernetes/        generic manifests (kustomize)
+  examples/          Falco http_output / Falcosidekick webhook / Flux snippets
+  sample-event.json
+```

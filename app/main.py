@@ -1,7 +1,15 @@
-"""falco-triage — a mobile-first triage feed for Falco events.
+"""perch — a clean, self-hosted UI for Falco events.
 
-Receives events from Falcosidekick's webhook output, stores them in SQLite,
-and serves a phone-friendly feed (HTMX). One container, no external services.
+Perch ingests Falco alerts over HTTP, stores them in SQLite, and serves a
+responsive feed (HTMX, no build step, one container). It supports two
+integration paths that POST the *identical* Falco alert JSON to ``/ingest``:
+
+  1. Direct      — Falco's own ``http_output`` points at perch.
+  2. Add-on      — Falcosidekick's ``webhook`` output points at perch
+                   (drop-in for environments already running Falcosidekick).
+
+Because Falco's HTTP output and Falcosidekick's webhook output forward the same
+payload, a single endpoint, store, and UI serve both paths.
 """
 import hmac
 import json
@@ -13,17 +21,30 @@ from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-DB_PATH = os.environ.get("DB_PATH", "/data/triage.db")
-WEBHOOK_SECRET = os.environ.get("TRIAGE_SECRET", "")
+DB_PATH = os.environ.get("DB_PATH", "/data/perch.db")
+# PERCH_SECRET is preferred; TRIAGE_SECRET kept as a fallback for older deploys.
+WEBHOOK_SECRET = os.environ.get("PERCH_SECRET") or os.environ.get("TRIAGE_SECRET", "")
 RETENTION_DAYS = int(os.environ.get("RETENTION_DAYS", "30"))
 POLL_SECONDS = int(os.environ.get("POLL_SECONDS", "15"))
 
-# Falco priority order, most severe first.
+BASE_DIR = Path(__file__).parent
+
+# Falco priority order, most severe first. These map to the "critical" group.
 CRIT = {"emergency", "alert", "critical", "error"}
 
-TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+# Time-since windows offered by the UI -> timedelta.
+SINCE_WINDOWS = {
+    "1h": timedelta(hours=1),
+    "6h": timedelta(hours=6),
+    "24h": timedelta(hours=24),
+    "7d": timedelta(days=7),
+    "30d": timedelta(days=30),
+}
+
+TEMPLATES = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 
 def db() -> sqlite3.Connection:
@@ -53,6 +74,8 @@ def init_db() -> None:
         )
         conn.execute("CREATE INDEX IF NOT EXISTS idx_recv ON events(received_at DESC)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_prio ON events(priority)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_host ON events(hostname)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_rule ON events(rule)")
         conn.commit()
 
 
@@ -62,7 +85,8 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="falco-triage", lifespan=lifespan)
+app = FastAPI(title="perch", lifespan=lifespan)
+app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
 
 def humanize(iso: str | None) -> str:
@@ -112,19 +136,60 @@ def rowdict(r: sqlite3.Row) -> dict:
     }
 
 
-def counts(conn: sqlite3.Connection) -> dict:
-    total = conn.execute("SELECT COUNT(*) c FROM events").fetchone()["c"]
-    crit = conn.execute(
-        "SELECT COUNT(*) c FROM events WHERE LOWER(priority) IN ('emergency','alert','critical','error')"
-    ).fetchone()["c"]
-    warn = conn.execute(
-        "SELECT COUNT(*) c FROM events WHERE LOWER(priority)='warning'"
-    ).fetchone()["c"]
-    return {"total": total, "critical": crit, "warning": warn}
+def scope_clauses(host: str, since: str, q: str) -> tuple[list[str], list]:
+    """Filters that define the visible 'scope' (everything except severity).
+
+    Shared by the feed query and the count badges so the badges reflect the
+    current view rather than the whole database.
+    """
+    clauses: list[str] = []
+    params: list = []
+    if host:
+        clauses.append("hostname = ?")
+        params.append(host)
+    if since in SINCE_WINDOWS:
+        cutoff = (datetime.now(timezone.utc) - SINCE_WINDOWS[since]).isoformat()
+        clauses.append("received_at >= ?")
+        params.append(cutoff)
+    if q:
+        clauses.append("(rule LIKE ? OR output LIKE ? OR hostname LIKE ?)")
+        params += [f"%{q}%"] * 3
+    return clauses, params
+
+
+def counts(conn: sqlite3.Connection, scope_sql: str, scope_params: list) -> dict:
+    base = f"SELECT COUNT(*) c FROM events{scope_sql}"
+
+    def with_extra(extra: str) -> int:
+        sql = base + (" AND " if scope_sql else " WHERE ") + extra
+        return conn.execute(sql, scope_params).fetchone()["c"]
+
+    total = conn.execute(base, scope_params).fetchone()["c"]
+    crit = with_extra(
+        "LOWER(priority) IN ('emergency','alert','critical','error')"
+    )
+    warn = with_extra("LOWER(priority)='warning'")
+    other = with_extra(
+        "LOWER(priority) IN ('notice','informational','debug') OR priority IS NULL"
+    )
+    return {"total": total, "critical": crit, "warning": warn, "other": other}
+
+
+def distinct(conn: sqlite3.Connection, column: str) -> list[str]:
+    """Sorted distinct non-empty values for a column, for filter dropdowns."""
+    if column not in {"hostname", "rule"}:  # guard against injection
+        return []
+    rows = conn.execute(
+        f"SELECT DISTINCT {column} v FROM events "
+        f"WHERE {column} IS NOT NULL AND {column} != '' ORDER BY {column}"
+    ).fetchall()
+    return [r["v"] for r in rows]
 
 
 @app.post("/ingest")
 async def ingest(request: Request, x_webhook_secret: str | None = Header(default=None)):
+    # Both integration paths (Falco http_output, Falcosidekick webhook) POST the
+    # same Falco alert JSON here.
     if WEBHOOK_SECRET:
         if not x_webhook_secret or not hmac.compare_digest(x_webhook_secret, WEBHOOK_SECRET):
             raise HTTPException(status_code=401, detail="unauthorized")
@@ -163,27 +228,39 @@ async def ingest(request: Request, x_webhook_secret: str | None = Header(default
 
 
 @app.get("/feed", response_class=HTMLResponse)
-def feed(request: Request, priority: str = "", q: str = "", limit: int = 200):
-    clauses, params = [], []
+def feed(
+    request: Request,
+    priority: str = "",
+    host: str = "",
+    rule: str = "",
+    since: str = "",
+    q: str = "",
+    limit: int = 200,
+):
+    clauses, params = scope_clauses(host, since, q)
+    if rule:
+        clauses.append("rule = ?")
+        params.append(rule)
     if priority == "critical":
         clauses.append("LOWER(priority) IN ('emergency','alert','critical','error')")
     elif priority == "warning":
         clauses.append("LOWER(priority)='warning'")
     elif priority == "other":
-        clauses.append("LOWER(priority) IN ('notice','informational','debug')")
-    if q:
-        clauses.append("(rule LIKE ? OR output LIKE ? OR hostname LIKE ?)")
-        params += [f"%{q}%"] * 3
+        clauses.append("LOWER(priority) IN ('notice','informational','debug') OR priority IS NULL")
 
     sql = "SELECT * FROM events"
     if clauses:
-        sql += " WHERE " + " AND ".join(clauses)
+        sql += " WHERE " + " AND ".join(f"({c})" for c in clauses)
     sql += " ORDER BY received_at DESC LIMIT ?"
     params.append(limit)
 
+    # Count badges reflect the scope (host/time/search), not the severity chip.
+    scope, scope_params = scope_clauses(host, since, q)
+    scope_sql = (" WHERE " + " AND ".join(f"({c})" for c in scope)) if scope else ""
+
     with closing(db()) as conn:
         rows = conn.execute(sql, params).fetchall()
-        ctx_counts = counts(conn)
+        ctx_counts = counts(conn, scope_sql, scope_params)
 
     return TEMPLATES.TemplateResponse(
         request=request,
@@ -195,11 +272,18 @@ def feed(request: Request, priority: str = "", q: str = "", limit: int = 200):
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
     with closing(db()) as conn:
-        ctx_counts = counts(conn)
+        ctx_counts = counts(conn, "", [])
+        hosts = distinct(conn, "hostname")
+        rules = distinct(conn, "rule")
     return TEMPLATES.TemplateResponse(
         request=request,
         name="index.html",
-        context={"counts": ctx_counts, "poll": POLL_SECONDS},
+        context={
+            "counts": ctx_counts,
+            "hosts": hosts,
+            "rules": rules,
+            "poll": POLL_SECONDS,
+        },
     )
 
 

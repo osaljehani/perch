@@ -1,0 +1,20 @@
+# Optional homelab example — a Flux Kustomization that reconciles perch's
+# kubernetes manifests, with SOPS decryption for the secret. Drop into your
+# cluster's flux path and match sourceRef / decryption to your other apps.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: perch
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./infrastructure/perch        # where you vendor deploy/kubernetes/*
+  prune: true
+  wait: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system                 # match your existing GitRepository
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age                  # match the SOPS secret your other apps use
