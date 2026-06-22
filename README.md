@@ -158,6 +158,7 @@ A Flux/SOPS example for GitOps homelabs is in
 | `NTFY_TOPIC`     | `falco-alerts`   | ntfy topic to publish to.                          |
 | `NTFY_MIN_PRIORITY` | `error`       | Minimum severity to push. `error` = critical-tier; set to `warning` to include warnings. |
 | `NTFY_TOKEN`     | (none)           | Bearer token, for ntfy servers that require auth.  |
+| `MAX_INGEST_BYTES` | `1048576`      | Max accepted `/ingest` body size (1 MiB). Larger requests get `413`. |
 
 `TRIAGE_SECRET` is still read as a fallback for older deployments.
 
@@ -175,3 +176,7 @@ deploy/
   examples/          Falco http_output / Falcosidekick webhook / Flux snippets
   sample-event.json
 ```
+
+## License
+
+Perch is released under the [MIT License](LICENSE).

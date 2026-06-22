@@ -16,7 +16,27 @@ env:
   IMAGE: ghcr.io/${{ github.repository_owner }}/perch
 
 jobs:
+  # Gate the published image on the suite: a tag build won't push unless tests
+  # pass. (test.yml covers per-branch/PR feedback; this guards the release.)
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        working-directory: app
+        run: pip install -r requirements-dev.txt
+
+      - name: Run tests
+        working-directory: app
+        run: python -m pytest -q
+
   image:
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read

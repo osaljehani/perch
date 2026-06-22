@@ -34,6 +34,9 @@ DB_PATH = os.environ.get("DB_PATH", "/data/perch.db")
 WEBHOOK_SECRET = os.environ.get("PERCH_SECRET") or os.environ.get("TRIAGE_SECRET", "")
 RETENTION_DAYS = int(os.environ.get("RETENTION_DAYS", "30"))
 POLL_SECONDS = int(os.environ.get("POLL_SECONDS", "15"))
+# Cap the /ingest body so a raw-exposed endpoint can't be fed a giant payload.
+# Falco alerts are well under this; 1 MiB is generous headroom.
+MAX_INGEST_BYTES = int(os.environ.get("MAX_INGEST_BYTES", str(1024 * 1024)))
 
 log = logging.getLogger("perch")
 
@@ -101,6 +104,12 @@ TEMPLATES = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 def db() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    # WAL lets the polling feed read while /ingest writes (INSERT + retention
+    # DELETE); busy_timeout waits instead of failing on a momentary lock. Both
+    # are cheap to set per connection and prevent "database is locked" under
+    # even light concurrency.
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     return conn
 
 
@@ -383,8 +392,16 @@ async def ingest(request: Request, background_tasks: BackgroundTasks,
     if WEBHOOK_SECRET:
         if not x_webhook_secret or not hmac.compare_digest(x_webhook_secret, WEBHOOK_SECRET):
             raise HTTPException(status_code=401, detail="unauthorized")
+    # Reject oversized bodies: by declared length first (cheap), then by the
+    # bytes actually read (covers chunked requests with no Content-Length).
+    cl = request.headers.get("content-length")
+    if cl and cl.isdigit() and int(cl) > MAX_INGEST_BYTES:
+        raise HTTPException(status_code=413, detail="payload too large")
+    raw = await request.body()
+    if len(raw) > MAX_INGEST_BYTES:
+        raise HTTPException(status_code=413, detail="payload too large")
     try:
-        p = await request.json()
+        p = json.loads(raw)
     except Exception:
         raise HTTPException(status_code=400, detail="invalid json")
 
@@ -421,6 +438,9 @@ async def ingest(request: Request, background_tasks: BackgroundTasks,
 
 
 def render_feed(request, *, priority, host, rule, since, q, limit):
+    # Clamp: SQLite treats a negative LIMIT as "no limit" (whole table) and a
+    # huge value is a memory footgun on a public endpoint.
+    limit = max(1, min(limit, 1000))
     clauses, params = filter_clauses(priority, host, rule, since, q)
     sql = f"SELECT * FROM events{where_sql(clauses)} ORDER BY received_at DESC LIMIT ?"
 
