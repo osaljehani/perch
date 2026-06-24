@@ -12,6 +12,7 @@ Because Falco's HTTP output and Falcosidekick's webhook output forward the same
 payload, a single endpoint, store, and UI serve both paths.
 """
 import csv
+import hashlib
 import hmac
 import io
 import json
@@ -147,6 +148,22 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="perch", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+
+
+def _asset_version() -> str:
+    """Short content hash of the static assets, appended as ?v= to their <link>/
+    <script> URLs. Changes whenever app.css/app.js change, so a rebuilt image
+    busts the browser cache automatically instead of serving stale styles."""
+    h = hashlib.sha1()
+    for name in ("app.css", "app.js"):
+        try:
+            h.update((BASE_DIR / "static" / name).read_bytes())
+        except OSError:
+            pass
+    return h.hexdigest()[:8]
+
+
+ASSET_VER = _asset_version()
 
 
 def humanize(iso: str | None) -> str:
@@ -586,6 +603,7 @@ def index(request: Request):
             "hosts": hosts,
             "rules": rules,
             "poll": POLL_SECONDS,
+            "asset_ver": ASSET_VER,
         },
     )
 

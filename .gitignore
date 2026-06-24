@@ -1,5 +1,7 @@
 __pycache__/
 *.pyc
 *.db
+.venv/
+venv/
 /deploy/kubernetes/secret.yaml
 *plan.md

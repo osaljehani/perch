@@ -4,7 +4,7 @@
   <a class="exp" href="/export?fmt=json&{{ qs }}">JSON</a>
 </span>
 <div class="stats">
-  <section class="chart">
+  <section class="chart s-time">
     <h3>Events over time <span class="since">· {{ since }}</span></h3>
     <div class="spark">
       {% for b in over_time %}
@@ -15,7 +15,7 @@
     <div class="spark-axis"><span>{{ over_time[0].label }}</span><span>{{ over_time[-1].label }}</span></div>
   </section>
 
-  <section class="chart">
+  <section class="chart s-prio">
     <h3>By priority</h3>
     {% if priority_segments %}
     <div class="donut-wrap">
@@ -32,7 +32,7 @@
     {% else %}<p class="empty">No data in window.</p>{% endif %}
   </section>
 
-  <section class="chart">
+  <section class="chart s-rules">
     <h3>Top rules</h3>
     {% if not top_rules %}<p class="empty">No data in window.</p>{% endif %}
     {% for r in top_rules %}
@@ -44,7 +44,7 @@
     {% endfor %}
   </section>
 
-  <section class="chart">
+  <section class="chart s-host">
     <h3>By host</h3>
     {% if host_segments %}
     <div class="donut-wrap">

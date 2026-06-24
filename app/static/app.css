@@ -129,10 +129,15 @@ a {
 /* ============================================================
    TOP BAR
    ============================================================ */
-.topbar {
+/* Topbar + filters stick together as one unit so the filter bar can't slide
+   under the topbar on scroll (and it stays robust when the topbar wraps). */
+.stickyhead {
   position: sticky;
   top: 0;
   z-index: 4;
+}
+
+.topbar {
   background: color-mix(in srgb, var(--bg-page) 88%, transparent);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
@@ -215,9 +220,6 @@ a {
    FILTERS
    ============================================================ */
 .filters {
-  position: sticky;
-  top: 0;
-  z-index: 3;
   background: var(--bg-page);
   border-bottom: 1px solid var(--border);
   padding: var(--space-1) var(--space-3);
@@ -227,21 +229,71 @@ a {
   align-items: center;
 }
 
-.chipset {
+/* View tabs (Feed / Stats) + the mobile Filters toggle. */
+.tabs {
+  display: flex;
+  gap: 0.35rem;
+  flex: 1 1 100%;
+}
+
+.tabs label {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.9rem;
+  cursor: pointer;
+  transition: color 150ms ease, border-color 150ms ease, background 150ms ease;
+}
+
+.tabs label:has(input:checked) {
+  color: var(--accent-contrast);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.tabs input { position: absolute; opacity: 0; pointer-events: none; }
+
+.filters-toggle {
+  margin-left: auto;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.85rem;
+  cursor: pointer;
+  transition: color 150ms ease, border-color 150ms ease, background 150ms ease;
+}
+
+.filters-toggle[aria-expanded="true"],
+.filters-toggle.has-active {
+  color: var(--accent-contrast);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* Advanced filter panel — collapsed on mobile, inline row on desktop. */
+.fadv {
+  display: none;
+  flex: 1 1 100%;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+#filters.filters-open .fadv { display: flex; }
+
+.chips {
   display: flex;
   gap: 0.35rem;
   flex-wrap: wrap;
 }
 
-.chipset .group-label {
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--text-subtle);
-  align-self: center;
-  margin-right: 0.15rem;
-}
-
-.chip {
+.chips label {
   font-size: var(--text-sm);
   color: var(--text-muted);
   background: var(--bg-surface);
@@ -252,19 +304,18 @@ a {
   transition: color 150ms ease, border-color 150ms ease, background 150ms ease;
 }
 
-.chip:hover { color: var(--text-main); border-color: var(--text-subtle); }
+.chips label:hover { color: var(--text-main); border-color: var(--text-subtle); }
 
-.chipset label:has(input:checked) .chip,
-.chip:has(input:checked) {
+.chips label:has(input:checked) {
   color: var(--accent-contrast);
   background: var(--accent);
   border-color: var(--accent);
   font-weight: 600;
 }
 
-.chipset input { position: absolute; opacity: 0; pointer-events: none; }
+.chips input { position: absolute; opacity: 0; pointer-events: none; }
 
-.select,
+.sel,
 .search {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
@@ -275,13 +326,15 @@ a {
   padding: 0.45rem 0.7rem;
 }
 
-.select { cursor: pointer; }
-.search { flex: 1 1 14rem; min-width: 12rem; }
+.sel { cursor: pointer; flex: 1 1 45%; }
+.search { flex: 1 1 100%; }
 .search::placeholder { color: var(--text-subtle); }
 
-.select:focus-visible,
+.sel:focus-visible,
 .search:focus-visible,
-.chipset label:focus-within .chip {
+.tabs label:focus-within,
+.chips label:focus-within,
+.filters-toggle:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
@@ -456,6 +509,11 @@ summary::-webkit-details-marker { display: none; }
   gap: var(--space-2);
 }
 
+.s-time { grid-area: time; }
+.s-prio { grid-area: prio; }
+.s-rules { grid-area: rules; }
+.s-host { grid-area: host; }
+
 .chart {
   background: var(--bg-surface);
   border: 1px solid var(--border);
@@ -554,7 +612,30 @@ summary::-webkit-details-marker { display: none; }
 .barcount { flex: 0 0 auto; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); }
 
 @media (min-width: 721px) {
-  .stats { padding-top: var(--space-3); }
+  .stats {
+    padding-top: var(--space-3);
+    display: grid;
+    gap: var(--space-2);
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas: "time time" "prio host" "rules rules";
+  }
+
+  /* Filter bar collapses into one inline row; the toggle is desktop-redundant. */
+  .filters { align-items: center; }
+  .tabs { flex: 0 0 auto; }
+  .filters-toggle { display: none; }
+  .fadv {
+    display: flex !important;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1);
+    flex: 1 1 auto;
+  }
+  .chips { flex: 0 0 auto; }
+  .sel { flex: 0 1 auto; }
+  .search { flex: 1 1 14rem; min-width: 12rem; }
+  .export { flex: 0 0 auto; margin-left: auto; }
 }
 
 /* ============================================================
@@ -576,4 +657,15 @@ summary::-webkit-details-marker { display: none; }
   .feed { padding-top: var(--space-3); gap: var(--space-2); }
   .card:hover { transform: translateY(-2px); }
   .rule { font-size: var(--text-base); }
+}
+
+/* Wide screens: cap the feed for readability and give the stats an asymmetric
+   grid so the wide charts (time series, top rules) get room and the donuts
+   stay compact instead of marooned in a full-width card. */
+@media (min-width: 1000px) {
+  .feed { max-width: 45rem; margin: 0 auto; }
+  .stats {
+    grid-template-columns: 1.4fr 1fr;
+    grid-template-areas: "time prio" "rules host";
+  }
 }

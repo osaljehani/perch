@@ -17,59 +17,89 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet"
     href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/app.css?v={{ asset_ver }}">
   <script src="https://unpkg.com/htmx.org@2.0.4"></script>
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v={{ asset_ver }}"></script>
 </head>
 
 <body>
-  <header class="topbar">
-    <div class="wrap topbar-inner">
-      <a href="/" class="brand"><span class="dot" aria-hidden="true"></span>perch</a>
-      <span class="counts" id="counts">{% include "_counts.html" %}</span>
-      <button class="iconbtn" title="Refresh"
-              hx-get="/view" hx-include="#filters" hx-target="#view">↻</button>
-      <button class="iconbtn" title="Toggle theme" onclick="toggleTheme()">◐</button>
-    </div>
-  </header>
+  <div class="stickyhead">
+    <header class="topbar">
+      <div class="wrap topbar-inner">
+        <a href="/" class="brand"><span class="dot" aria-hidden="true"></span>perch</a>
+        <span class="counts" id="counts">{% include "_counts.html" %}</span>
+        <button class="iconbtn" title="Refresh"
+                hx-get="/view" hx-include="#filters" hx-target="#view">↻</button>
+        <button class="iconbtn" title="Toggle theme" onclick="toggleTheme()">◐</button>
+      </div>
+    </header>
 
-  <form id="filters" class="filters wrap">
-    <div class="chipset" role="group" aria-label="View">
-      <span class="group-label">view</span>
-      <label><input type="radio" name="view" value="feed" checked><span class="chip">Feed</span></label>
-      <label><input type="radio" name="view" value="stats"><span class="chip">Stats</span></label>
-    </div>
+    <form id="filters" class="filters wrap">
+      <div class="tabs" role="group" aria-label="View">
+        <label><input type="radio" name="view" value="feed" checked>Feed</label>
+        <label><input type="radio" name="view" value="stats">Stats</label>
+        <button type="button" id="filters-toggle" class="filters-toggle"
+                aria-expanded="false" aria-controls="fadv">Filters</button>
+      </div>
 
-    <div class="chipset" role="group" aria-label="Severity">
-      <span class="group-label">sev</span>
-      <label><input type="radio" name="priority" value="" checked><span class="chip">All</span></label>
-      <label><input type="radio" name="priority" value="critical"><span class="chip">Critical</span></label>
-      <label><input type="radio" name="priority" value="warning"><span class="chip">Warning</span></label>
-      <label><input type="radio" name="priority" value="other"><span class="chip">Other</span></label>
-    </div>
+      <div class="fadv" id="fadv">
+        <div class="chips" role="group" aria-label="Severity">
+          <label><input type="radio" name="priority" value="" checked>All</label>
+          <label><input type="radio" name="priority" value="critical">Critical</label>
+          <label><input type="radio" name="priority" value="warning">Warning</label>
+          <label><input type="radio" name="priority" value="other">Other</label>
+        </div>
 
-    <div class="chipset" role="group" aria-label="Time since">
-      <span class="group-label">since</span>
-      <label><input type="radio" name="since" value="1h"><span class="chip">1h</span></label>
-      <label><input type="radio" name="since" value="24h"><span class="chip">24h</span></label>
-      <label><input type="radio" name="since" value="7d"><span class="chip">7d</span></label>
-      <label><input type="radio" name="since" value="" checked><span class="chip">All</span></label>
-    </div>
+        <div class="chips" role="group" aria-label="Time since">
+          <label><input type="radio" name="since" value="1h">1h</label>
+          <label><input type="radio" name="since" value="24h">24h</label>
+          <label><input type="radio" name="since" value="7d">7d</label>
+          <label><input type="radio" name="since" value="" checked>All</label>
+        </div>
 
-    <select class="select" name="host" aria-label="Host">
-      <option value="">All hosts</option>
-      {% for h in hosts %}<option value="{{ h }}">{{ h }}</option>{% endfor %}
-    </select>
+        <select class="sel" name="host" aria-label="Host">
+          <option value="">All hosts</option>
+          {% for h in hosts %}<option value="{{ h }}">{{ h }}</option>{% endfor %}
+        </select>
 
-    <select class="select" name="rule" aria-label="Rule">
-      <option value="">All rules</option>
-      {% for r in rules %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
-    </select>
+        <select class="sel" name="rule" aria-label="Rule">
+          <option value="">All rules</option>
+          {% for r in rules %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
+        </select>
 
-    <input class="search" type="search" name="q" placeholder="filter by rule, host, output…" autocomplete="off">
+        <span id="export" class="export"></span>
+      </div>
 
-    <span id="export" class="export"></span>
-  </form>
+      <input class="search" type="search" name="q" placeholder="filter by rule, host, output…" autocomplete="off">
+    </form>
+  </div>
+  <script>
+    // Mobile: the advanced filter panel is collapsed by default. Toggle it, and
+    // badge the toggle with the count of active (non-default) filters so applied
+    // filters stay visible while the panel is hidden.
+    (function () {
+      var form = document.getElementById('filters');
+      var toggle = document.getElementById('filters-toggle');
+      toggle.addEventListener('click', function () {
+        var open = form.classList.toggle('filters-open');
+        toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      });
+      function sync() {
+        var n = 0;
+        if ((form.querySelector('input[name=priority]:checked') || {}).value) n++;
+        var since = form.querySelector('input[name=since]:checked');
+        if (since && since.value !== '') n++;
+        if (form.host.value) n++;
+        if (form.rule.value) n++;
+        if (form.q.value.trim()) n++;
+        toggle.textContent = n ? 'Filters · ' + n : 'Filters';
+        toggle.classList.toggle('has-active', n > 0);
+      }
+      form.addEventListener('change', sync);
+      form.addEventListener('input', sync);
+      sync();
+    })();
+  </script>
 
   <main id="view" class="wrap"
         hx-get="/view"
