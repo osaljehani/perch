@@ -107,5 +107,26 @@
         hx-trigger="load, every {{ poll }}s, change from:#filters, keyup changed delay:400ms from:#filters">
     <div class="empty">Loading…</div>
   </main>
+  <script>
+    // The feed auto-refreshes on a timer; each poll swaps in freshly-rendered
+    // cards that have lost their open state, so an expanded card you're reading
+    // would snap shut mid-read. Capture which cards are open just before the
+    // swap and re-open them (by stable id) right after — without replaying the
+    // reveal animation.
+    (function () {
+      var view = document.getElementById('view');
+      var openIds = [];
+      view.addEventListener('htmx:beforeSwap', function () {
+        openIds = Array.prototype.map.call(
+          view.querySelectorAll('details.card[open]'), function (d) { return d.id; });
+      });
+      view.addEventListener('htmx:afterSwap', function () {
+        openIds.forEach(function (id) {
+          var d = id && document.getElementById(id);
+          if (d) { d.classList.add('noanim'); d.open = true; }
+        });
+      });
+    })();
+  </script>
 </body>
 </html>

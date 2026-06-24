@@ -200,6 +200,7 @@ def pclass(priority: str | None) -> str:
 
 def rowdict(r: sqlite3.Row) -> dict:
     return {
+        "id": r["id"],
         "rule": r["rule"] or "—",
         "priority": (r["priority"] or "").lower(),
         "pclass": pclass(r["priority"]),

@@ -644,6 +644,10 @@ summary::-webkit-details-marker { display: none; }
 .card[open] { animation: reveal 0.14s ease-out; }
 @keyframes reveal { from { opacity: 0.4; } to { opacity: 1; } }
 
+/* Cards re-opened after a background poll swap must not replay the reveal
+   flash — they were already open before the refresh. */
+.card.noanim[open] { animation: none; }
+
 @media (prefers-reduced-motion: reduce) {
   .brand .dot { animation: none; }
   .card[open] { animation: none; }

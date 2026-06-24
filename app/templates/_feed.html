@@ -8,7 +8,7 @@
 <div class="empty">No events match. Falco's quiet, or the filter's too tight.</div>
 {% else %}
 {% for e in events %}
-<details class="card {{ e.pclass }}">
+<details class="card {{ e.pclass }}" id="card-{{ e.id }}">
   <summary>
     <span class="row1">
       <span class="tag {{ e.pclass }}">{{ e.priority or "—" }}</span>
