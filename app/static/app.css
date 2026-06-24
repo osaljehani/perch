@@ -356,10 +356,11 @@ a {
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
   overflow: hidden;
-  transition: border-color 160ms ease, transform 160ms ease;
 }
 
-.card:hover { border-color: var(--text-subtle); }
+/* No transition/hover transition on .card: htmx swaps in a fresh card every
+   poll, and a hovered card would replay the border-color/transform transition
+   each refresh — a flashing border on whichever card you're reading. */
 .card.crit { border-left-color: var(--sev-crit); }
 .card.warn { border-left-color: var(--sev-warn); }
 .card.notice { border-left-color: var(--sev-notice); }
@@ -659,7 +660,6 @@ summary::-webkit-details-marker { display: none; }
    ============================================================ */
 @media (min-width: 721px) {
   .feed { padding-top: var(--space-3); gap: var(--space-2); }
-  .card:hover { transform: translateY(-2px); }
   .rule { font-size: var(--text-base); }
 }
 
