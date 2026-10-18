@@ -65,7 +65,7 @@ export PERCH_SECRET=$(openssl rand -hex 24)
 docker run -d -p 8000:8000 \
   -e PERCH_SECRET="$PERCH_SECRET" \
   -v perch-data:/data \
-  ghcr.io/osaljehani/perch:v0.1.0
+  ghcr.io/osaljehani/perch:v0.1.3
 # open http://localhost:8000
 ```
 
@@ -114,6 +114,21 @@ set, and any publish failure is logged and **never blocks ingestion** — a down
 ntfy can't drop events. The default threshold is critical-tier only
 (`emergency`/`alert`/`critical`/`error`); widen it to `warning` with one env var,
 no rebuild.
+
+Delivery is **retried**: a network error (DNS, connect, timeout), a `429` or a
+`5xx` from ntfy is retried after 2s, 10s and 30s, so a momentary blip doesn't
+cost you an alert. The push runs after `/ingest` has already answered, so retries
+never slow Falco or Falcosidekick down. Other `4xx` responses (a bad token, a
+topic you can't write to) are not retried — fix the config instead. Every alert
+that is finally lost is logged with the reason:
+
+```text
+ntfy publish rejected: HTTP 403 {"error":"forbidden"}
+ntfy publish failed after 4 attempts: ConnectError: [Errno -5] No address associated with hostname
+```
+
+If the feed shows a critical event and your phone didn't buzz, look for these
+lines in the container logs first.
 
 Two ways to wire it up:
 

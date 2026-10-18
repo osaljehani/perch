@@ -11,6 +11,7 @@ integration paths that POST the *identical* Falco alert JSON to ``/ingest``:
 Because Falco's HTTP output and Falcosidekick's webhook output forward the same
 payload, a single endpoint, store, and UI serve both paths.
 """
+import asyncio
 import csv
 import hashlib
 import hmac
@@ -355,10 +356,46 @@ def distinct(conn: sqlite3.Connection, column: str) -> list[str]:
     return [r["v"] for r in rows]
 
 
-async def post_ntfy(url: str, headers: dict, data: str) -> None:
-    """Raw ntfy publish — isolated so tests can monkeypatch it (no network)."""
+# Backoff (seconds) between ntfy attempts: 4 tries spread over ~42s. Runs in a
+# background task, so this never delays the /ingest response.
+NTFY_RETRY_DELAYS = (2, 10, 30)
+
+
+async def post_ntfy(url: str, headers: dict, data: str) -> httpx.Response:
+    """Raw single ntfy publish — isolated so tests can monkeypatch it (no network)."""
     async with httpx.AsyncClient(timeout=5) as c:
-        await c.post(url, headers=headers, content=data.encode("utf-8"))
+        return await c.post(url, headers=headers, content=data.encode("utf-8"))
+
+
+async def publish_ntfy(url: str, headers: dict, data: str) -> None:
+    """Publish to ntfy, retrying transient failures; log if the alert is lost.
+
+    Retried: transport errors (DNS, connect, timeout), 429 and 5xx — otherwise a
+    momentary DNS or network blip silently drops a critical alert. Not retried:
+    other 4xx (bad token/ACL), which retrying cannot fix. httpx never raises on
+    a non-2xx, so status codes are checked explicitly or a rejection would
+    vanish with no trace.
+    """
+    delays = iter(NTFY_RETRY_DELAYS)
+    attempts = 0
+    while True:
+        attempts += 1
+        try:
+            resp = await post_ntfy(url, headers, data)
+        except httpx.TransportError as e:
+            problem = f"{type(e).__name__}: {e}"
+        else:
+            if not resp.is_error:
+                return
+            problem = f"HTTP {resp.status_code} {resp.text[:200]}"
+            if resp.status_code != 429 and resp.status_code < 500:
+                log.warning("ntfy publish rejected: %s", problem)
+                return
+        delay = next(delays, None)
+        if delay is None:
+            log.warning("ntfy publish failed after %d attempts: %s", attempts, problem)
+            return
+        await asyncio.sleep(delay)
 
 
 def _ascii_header(value: str) -> str:
@@ -397,7 +434,7 @@ async def notify_ntfy(payload: dict, hostname: str = "") -> None:
         headers = {"Title": title, "Priority": "urgent", "Tags": "rotating_light"}
         if token:
             headers["Authorization"] = f"Bearer {token}"
-        await post_ntfy(f"{base}/{topic}", headers, body)
+        await publish_ntfy(f"{base}/{topic}", headers, body)
     except Exception as e:
         log.warning("ntfy publish failed: %s", e)
 

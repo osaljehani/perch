@@ -23,7 +23,7 @@ spec:
         fsGroup: 1000
       containers:
         - name: perch
-          image: ghcr.io/osaljehani/perch:v0.1.0
+          image: ghcr.io/osaljehani/perch:v0.1.3
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
